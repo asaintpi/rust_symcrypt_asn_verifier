@@ -44,7 +44,7 @@ cargo test -- --nocapture
 
 ## API Overview
 Key Functions
--  `parse_x509_certificate`: arses X.509 certificates for RSA signature verification.
+-  `parse_x509_certificate`: Parses X.509 certificates for RSA signature verification.
 -  `parse_x509_certificate_ec`: Parses X.509 certificates for ECDSA signature verification.
 -  `handle_rsa`: Handles RSA signature verification.
 -  `handle_rsa_pss`: Handles RSA-PSS signature verification.
