@@ -1,0 +1,10 @@
+[package]
+name = "rust_symcrypt_asn_verifier"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+der = { version = "0.7", features = ["alloc", "oid"] }
+x509-parser = "0.16.0"
+symcrypt = { path = "C:\\Users\\t-apierre\\OneDrive - Microsoft\\Desktop\\rust-symcrypt\\rust-symcrypt" }
+rustls = "0.20"
