@@ -55,15 +55,15 @@ Key Functions
 // Example for PKCS#1 (Psuedo)
 let message = b"..."
 let hash_algorithm = Sha384
-let private_key = {... load private key}
+let private_key = {... load private key ...}
 let signature_scheme = SignatureScheme::RSA_PKCS1_SHA384
 
-let key_pair = {... create key pair from private key data}
-let signature = {... generate a signature using key pair}
+let key_pair = {... create key pair from private key data ...}
+let signature = {... generate a signature using key pair ...}
 
 let certifcate = {temp/files/certificate.der}
 let certificate_data = read(certificate)
-let rsa_public_key = {... generate key from spki}
+let rsa_public_key = {... generate key from spki ...}
 let rsa_key = {create public key from: rsa_public_key modulus/exponent}
 
 parse_certificate(&certificate_data, message, signature, signature_scheme, Some(rsa_key), None).unwrap()
