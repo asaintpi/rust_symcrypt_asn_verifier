@@ -4,7 +4,7 @@ use symcrypt::{
     ecc::{EcKey, EcKeyUsage, CurveType},
     errors::SymCryptError,
     hash::{HashAlgorithm, sha256, sha384, sha512, SHA256_RESULT_SIZE, SHA384_RESULT_SIZE, SHA512_RESULT_SIZE},
-    rsa::{RsaKey},
+    rsa::{RsaKey, RsaKeyUsage},
 };
 use x509_parser::prelude::*;
 
@@ -36,6 +36,36 @@ pub enum SignatureScheme {
     ECDSA_NISTP384_SHA384,
 }
 
+/// Represents an RSA Public Key with modulus and exponent
+///
+/// # Fields:
+/// - `modulus`: Uint - Represents the modulus part of the RSA key, typically a large integer.
+/// - `exponent`: Uint - Represents the exponent part of the RSA key, usually a small integer like 65537.
+#[derive(Debug)]
+pub struct RSAPublicKey {
+    pub modulus: Uint,
+    pub exponent: Uint,
+}
+
+/// Implementation of the `Decode` trait for `RSAPublicKey` to enable decoding from DER-encoded data
+///
+/// # Methods:
+/// - `decode`: Takes a mutable reference to a reader implementing the `Reader` trait. 
+///   It attempts to decode a sequence of bytes representing an RSA public key into the `RSAPublicKey` structure.
+///
+/// # Returns:
+/// - `Ok(RSAPublicKey)`: Successfully decoded RSA public key.
+/// - `Err(der::Error)`: An error occurred during decoding.
+impl<'a> Decode<'a> for RSAPublicKey {
+    fn decode<R: Reader<'a>>(reader: &mut R) -> der::Result<Self> {
+        reader.sequence(|reader| {
+            let modulus = reader.decode()?;
+            let exponent = reader.decode()?;
+            Ok(RSAPublicKey { modulus, exponent })
+        })
+    }
+}
+
 /// Parses an X.509 certificate for EC signature verification
 ///
 /// This function extracts the certificate's public key information and verifies the signature using the provided EC key.
@@ -49,13 +79,19 @@ pub enum SignatureScheme {
 ///
 /// # Returns:
 /// A `Result<(), SymCryptError>` indicating success or error during the parsing or signature verification process
-pub fn parse_x509_certificate_ec(data: &[u8], message: &[u8], signature: Vec<u8>, signature_scheme: SignatureScheme, ec_key: EcKey) -> Result<(), SymCryptError> {
+pub fn parse_x509_certificate_ec(data: &[u8], message: &[u8], signature: Vec<u8>, signature_scheme: SignatureScheme) -> Result<(), SymCryptError> {
     let Ok((_, cert)) = X509Certificate::from_der(data) else {
         return Err(SymCryptError::InvalidBlob);
     };
-    
     let spki = &cert.tbs_certificate.subject_pki;
     let algorithm_oid = spki.algorithm.algorithm.to_string();
+    let ecc_public_key_data = &spki.subject_public_key.data; 
+    let processed_ecc_public_key_data = if ecc_public_key_data.starts_with(&[0x04]) {
+        &ecc_public_key_data[1..]
+    } else {
+        ecc_public_key_data
+    };
+        
     let ecc_oid = ObjectIdentifier::new("1.2.840.10045.2.1").unwrap().to_string();
 
     let hash_algorithm = match signature_scheme {
@@ -65,6 +101,8 @@ pub fn parse_x509_certificate_ec(data: &[u8], message: &[u8], signature: Vec<u8>
         _ => return Err(SymCryptError::IncompatibleFormat),
     };
 
+
+
     if algorithm_oid != ecc_oid {
         return Err(SymCryptError::WrongKeySize);
     } else if algorithm_oid == ecc_oid {
@@ -73,7 +111,9 @@ pub fn parse_x509_certificate_ec(data: &[u8], message: &[u8], signature: Vec<u8>
             SignatureScheme::ECDSA_NISTP384_SHA384 => CurveType::NistP384,
             _ => return Err(SymCryptError::IncompatibleFormat),
         };
-        let _ = handle_ecc(signature, curve_type, hash_algorithm, ec_key, message);
+        let newKey = EcKey::set_public_key(curve_type, &processed_ecc_public_key_data, EcKeyUsage::EcDsa).unwrap();
+
+        let _ = handle_ecc(signature, curve_type, hash_algorithm, newKey, message);
     } else {
         println!("Unknown certificate type.");
     }
@@ -98,12 +138,23 @@ pub fn parse_x509_certificate(
     data: &[u8],
     message: &[u8],
     signature: Vec<u8>,
-    signature_scheme: SignatureScheme,
-    rsa_key: RsaKey
+    signature_scheme: SignatureScheme
 ) -> Result<(), SymCryptError> {
     let (_, cert) = X509Certificate::from_der(data).map_err(|_| SymCryptError::InvalidBlob)?;
     
     let spki = &cert.tbs_certificate.subject_pki;
+    // Extract the public key from the certificate
+    let rsa_public_key = RSAPublicKey::from_der(&spki.subject_public_key.data).map_err(|_| SymCryptError::InvalidBlob)?;
+    ;
+
+    // Create a new RSA key using set_public_key
+    let rsa_key1 = RsaKey::set_public_key(
+        &rsa_public_key.modulus.as_bytes(),
+        &rsa_public_key.exponent.as_bytes(),
+        RsaKeyUsage::SignAndEncrypt,
+    )
+    .map_err(|_| SymCryptError::IncompatibleFormat)?;
+
     let algorithm_oid = spki.algorithm.algorithm.to_string();
 
     let rsa_pkcs1_oid = ObjectIdentifier::new("1.2.840.113549.1.1.1").unwrap().to_string();
@@ -118,9 +169,9 @@ pub fn parse_x509_certificate(
     };
 
     if algorithm_oid == rsa_pkcs1_oid {
-        let _ = handle_rsa(signature, hash_algorithm, message, rsa_key);
+        let _ = handle_rsa(signature, hash_algorithm, message, rsa_key1);
     } else if algorithm_oid == rsa_pss_oid {
-        let _ = handle_rsa_pss(signature, hash_algorithm, message, rsa_key);
+        let _ = handle_rsa_pss(signature, hash_algorithm, message, rsa_key1);
     } else if algorithm_oid == ecc_oid {
         return Err(SymCryptError::WrongKeySize);
     } else {
