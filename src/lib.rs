@@ -16,7 +16,6 @@ pub mod rsa;
 pub mod utils;
 pub mod x509;
 
-
 /// `parse_certificate` attempts to parse and verify a certificate's signature using either an RSA or EC key
 ///
 /// This function provides an interface to handle certificate parsing for different cryptographic schemes
@@ -39,7 +38,6 @@ pub fn parse_certificate(
     message: &[u8],
     signature: Vec<u8>,
     signature_scheme: SignatureScheme) -> Result<(), SymCryptError> {
-
     
         match signature_scheme {
             SignatureScheme::RSA_PKCS1_SHA256 | 
@@ -57,6 +55,7 @@ pub fn parse_certificate(
                     .map_err(|_| SymCryptError::InvalidArgument)
             },
         }
+    
 }
 
 #[cfg(test)]
