@@ -101,8 +101,6 @@ pub fn parse_x509_certificate_ec(data: &[u8], message: &[u8], signature: Vec<u8>
         _ => return Err(SymCryptError::IncompatibleFormat),
     };
 
-
-
     if algorithm_oid != ecc_oid {
         return Err(SymCryptError::WrongKeySize);
     } else if algorithm_oid == ecc_oid {
@@ -148,7 +146,7 @@ pub fn parse_x509_certificate(
     ;
 
     // Create a new RSA key using set_public_key
-    let rsa_key1 = RsaKey::set_public_key(
+    let rsa_key = RsaKey::set_public_key(
         &rsa_public_key.modulus.as_bytes(),
         &rsa_public_key.exponent.as_bytes(),
         RsaKeyUsage::SignAndEncrypt,
@@ -169,9 +167,9 @@ pub fn parse_x509_certificate(
     };
 
     if algorithm_oid == rsa_pkcs1_oid {
-        let _ = handle_rsa(signature, hash_algorithm, message, rsa_key1);
+        let _ = handle_rsa(signature, hash_algorithm, message, rsa_key);
     } else if algorithm_oid == rsa_pss_oid {
-        let _ = handle_rsa_pss(signature, hash_algorithm, message, rsa_key1);
+        let _ = handle_rsa_pss(signature, hash_algorithm, message, rsa_key);
     } else if algorithm_oid == ecc_oid {
         return Err(SymCryptError::WrongKeySize);
     } else {
