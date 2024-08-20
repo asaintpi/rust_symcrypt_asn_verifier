@@ -16,6 +16,7 @@ pub mod rsa;
 pub mod utils;
 pub mod x509;
 
+
 /// `parse_certificate` attempts to parse and verify a certificate's signature using either an RSA or EC key
 ///
 /// This function provides an interface to handle certificate parsing for different cryptographic schemes
@@ -37,23 +38,24 @@ pub fn parse_certificate(
     data: &[u8],
     message: &[u8],
     signature: Vec<u8>,
-    signature_scheme: SignatureScheme,
-    rsa_key: Option<RsaKey>,
-    ec_key: Option<EcKey>) -> Result<(), SymCryptError> {
+    signature_scheme: SignatureScheme) -> Result<(), SymCryptError> {
 
-        if rsa_key.is_none() && ec_key.is_none() {
-            return Err(SymCryptError::InvalidArgument);
-        }
-        match (rsa_key, ec_key) {
-            (Some(rsa), _) => {
-                parse_x509_certificate(data, message, signature, signature_scheme, rsa)
+    
+        match signature_scheme {
+            SignatureScheme::RSA_PKCS1_SHA256 | 
+            SignatureScheme::RSA_PKCS1_SHA384 | 
+            SignatureScheme::RSA_PKCS1_SHA512 | 
+            SignatureScheme::RSA_PSS_SHA256 | 
+            SignatureScheme::RSA_PSS_SHA384 | 
+            SignatureScheme::RSA_PSS_SHA512 => {
+                parse_x509_certificate(data, message, signature, signature_scheme)
                     .map_err(|_| SymCryptError::InvalidArgument)
             },
-            (_, Some(ec)) => {
-                parse_x509_certificate_ec(data, message, signature, signature_scheme, ec)
+            SignatureScheme::ECDSA_NISTP256_SHA256 | 
+            SignatureScheme::ECDSA_NISTP384_SHA384 => {
+                parse_x509_certificate_ec(data, message, signature, signature_scheme)
                     .map_err(|_| SymCryptError::InvalidArgument)
             },
-            _ => Err(SymCryptError::InvalidArgument),
         }
 }
 
