@@ -7,6 +7,12 @@ use symcrypt::{
     rsa::{RsaKey, RsaKeyUsage},
 };
 use x509_parser::prelude::*;
+use picky_asn1_x509::signature::EcdsaSignatureValue;
+use picky_asn1::wrapper::IntegerAsn1;
+use picky_asn1_der::to_vec;
+use picky_asn1_der::from_bytes;
+use num_bigint::BigUint;
+use num_bigint::ToBigUint;
 
 // Local crate imports
 use crate::rsa::*;
@@ -66,6 +72,78 @@ impl<'a> Decode<'a> for RSAPublicKey {
     }
 }
 
+/// Splits a raw ECDSA signature into its constituent 'r' and 's' component
+///
+/// This function assumes that the input signature `raw_sig` is exactly twice the length of `curve_size`
+/// It splits the signature into the 'r' component and the 's' component based on the `curve_size`
+///
+/// # Parameters:
+/// - `raw_sig`: A slice of bytes representing the raw ECDSA signature
+/// - `curve_size`: The size of the curve used in bytes
+///
+/// # Returns:
+/// A tuple containing two `Vec<u8>` elements; the first is the 'r' component and the second is the 's' component of the signature
+///
+/// # Panics:
+/// This function will panic if the length of `raw_sig` is not equal to twice the `curve_size`
+fn split_signature(raw_sig: &[u8], curve_size: usize) -> (Vec<u8>, Vec<u8>) {
+    assert_eq!(raw_sig.len(), 2 * curve_size, "Signature length mismatch");
+    let (r, s) = raw_sig.split_at(curve_size);
+    (r.to_vec(), s.to_vec())
+}
+
+/// Encodes 'r' and 's' components of an ECDSA signature into a DER-encoded ASN.1 format
+///
+/// This function takes the 'r' and 's' components of an ECDSA signature and encodes them into a DER-encoded ASN.1 structure
+///
+/// # Parameters:
+/// - `r`: A slice of bytes representing the 'r' component of the signature
+/// - `s`: A slice of bytes representing the 's' component of the signature
+///
+/// # Returns:
+/// A `Result` containing the DER-encoded signature as a `Vec<u8>`, or an `SymCryptError::InvalidBlob` if encoding fails
+fn encode_ec_signature(r: &[u8], s: &[u8]) -> Result<Vec<u8>, SymCryptError> {
+    let r_asn1 = IntegerAsn1::from_bytes_be_unsigned(r.to_vec());
+    let s_asn1 = IntegerAsn1::from_bytes_be_unsigned(s.to_vec());
+    let signature = EcdsaSignatureValue { r: r_asn1, s: s_asn1 };
+
+    to_vec(&signature).map_err(|_| SymCryptError::InvalidBlob) 
+}
+
+/// Decodes a DER-encoded ASN.1 ECDSA signature into its 'r' and 's' components
+///
+/// This function takes a DER-encoded ASN.1 ECDSA signature and decodes it into the 'r' and 's' components
+///
+/// # Parameters:
+/// - `encoded_sig`: A slice of bytes representing the DER-encoded ASN.1 ECDSA signature
+///
+/// # Returns:
+/// A `Result` containing a tuple of two `Vec<u8>` elements representing the 'r' and 's' components of the signature,
+/// or an `SymCryptError::InvalidBlob` if decoding fails
+fn decode_ec_signature(encoded_sig: &[u8]) -> Result<(Vec<u8>, Vec<u8>), SymCryptError> {
+    let signature: EcdsaSignatureValue = from_bytes(encoded_sig)
+        .map_err(|_| SymCryptError::InvalidBlob)?; 
+    Ok((signature.r.0, signature.s.0))
+}
+
+/// Normalizes th e byte vector to a fixed size, padding with zeros at the start if necessary
+///
+/// # Parameters:
+/// * `bytes`: Vwc<u8> - The original byte vector
+/// * `target_size`: usize - The target byte length
+///
+/// # Returns:
+/// A Vec<u8> of exactly `target_size` length
+fn strip_to_fixed_size(bytes: &[u8], target_size: usize) -> Vec<u8> {
+    if bytes.len() > target_size {
+        bytes[bytes.len() - target_size..].to_vec()
+    } else {
+        let mut normalized = vec![0; target_size - bytes.len()];
+        normalized.extend_from_slice(bytes);
+        normalized
+    }
+}
+
 /// Parses an X.509 certificate for EC signature verification
 ///
 /// This function extracts the certificate's public key information and verifies the signature using the provided EC key.
@@ -83,6 +161,16 @@ pub fn parse_x509_certificate_ec(data: &[u8], message: &[u8], signature: Vec<u8>
     let Ok((_, cert)) = X509Certificate::from_der(data) else {
         return Err(SymCryptError::InvalidBlob);
     };
+
+    let curve_size = signature.len() / 2;
+    let (r1, s1) = split_signature(&signature, curve_size);
+    let encoded = encode_ec_signature(&r1, &s1)?;
+
+    let (r, s) = decode_ec_signature(&encoded)?;
+    let r_strip = strip_to_fixed_size(&r, curve_size);
+    let s_strip = strip_to_fixed_size(&s, curve_size);
+    let combined_signature = [r_strip, s_strip].concat();
+
     let spki = &cert.tbs_certificate.subject_pki;
     let algorithm_oid = spki.algorithm.algorithm.to_string();
     let ecc_public_key_data = &spki.subject_public_key.data; 
@@ -101,6 +189,8 @@ pub fn parse_x509_certificate_ec(data: &[u8], message: &[u8], signature: Vec<u8>
         _ => return Err(SymCryptError::IncompatibleFormat),
     };
 
+
+
     if algorithm_oid != ecc_oid {
         return Err(SymCryptError::WrongKeySize);
     } else if algorithm_oid == ecc_oid {
@@ -111,7 +201,7 @@ pub fn parse_x509_certificate_ec(data: &[u8], message: &[u8], signature: Vec<u8>
         };
         let newKey = EcKey::set_public_key(curve_type, &processed_ecc_public_key_data, EcKeyUsage::EcDsa).unwrap();
 
-        let _ = handle_ecc(signature, curve_type, hash_algorithm, newKey, message);
+        let _ = handle_ecc(combined_signature, curve_type, hash_algorithm, newKey, message);
     } else {
         println!("Unknown certificate type.");
     }
@@ -143,10 +233,9 @@ pub fn parse_x509_certificate(
     let spki = &cert.tbs_certificate.subject_pki;
     // Extract the public key from the certificate
     let rsa_public_key = RSAPublicKey::from_der(&spki.subject_public_key.data).map_err(|_| SymCryptError::InvalidBlob)?;
-    ;
 
     // Create a new RSA key using set_public_key
-    let rsa_key = RsaKey::set_public_key(
+    let rsa_key1 = RsaKey::set_public_key(
         &rsa_public_key.modulus.as_bytes(),
         &rsa_public_key.exponent.as_bytes(),
         RsaKeyUsage::SignAndEncrypt,
@@ -167,9 +256,9 @@ pub fn parse_x509_certificate(
     };
 
     if algorithm_oid == rsa_pkcs1_oid {
-        let _ = handle_rsa(signature, hash_algorithm, message, rsa_key);
+        let _ = handle_rsa(signature, hash_algorithm, message, rsa_key1);
     } else if algorithm_oid == rsa_pss_oid {
-        let _ = handle_rsa_pss(signature, hash_algorithm, message, rsa_key);
+        let _ = handle_rsa_pss(signature, hash_algorithm, message, rsa_key1);
     } else if algorithm_oid == ecc_oid {
         return Err(SymCryptError::WrongKeySize);
     } else {
