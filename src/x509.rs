@@ -135,12 +135,19 @@ fn decode_ec_signature(encoded_sig: &[u8]) -> Result<(Vec<u8>, Vec<u8>), SymCryp
 /// # Returns:
 /// A Vec<u8> of exactly `target_size` length
 fn strip_to_fixed_size(bytes: &[u8], target_size: usize) -> Vec<u8> {
-    if bytes.len() > target_size {
-        bytes[bytes.len() - target_size..].to_vec()
+    // Identify where the significant bytes start (skip leading zeros)
+    let mut start = 0;
+    while start < bytes.len() && bytes[start] == 0 {
+        start += 1;
+    }
+    // Calculate the length of significant bytes
+    let significant_length = bytes.len() - start;
+    if significant_length >= target_size {
+        bytes[start..].to_vec()  // Return last `target_size` bytes
     } else {
-        let mut normalized = vec![0; target_size - bytes.len()];
-        normalized.extend_from_slice(bytes);
-        normalized
+        let mut result = vec![0; target_size - significant_length];  // Pad with zeros if less than target_size
+        result.extend_from_slice(&bytes[start..]);
+        result
     }
 }
 
@@ -164,12 +171,18 @@ pub fn parse_x509_certificate_ec(data: &[u8], message: &[u8], signature: Vec<u8>
 
     let curve_size = signature.len() / 2;
     let (r1, s1) = split_signature(&signature, curve_size);
+    println!("oringinal r1, s1: {:?}, {:?}", r1, s1);
     let encoded = encode_ec_signature(&r1, &s1)?;
+    println!("encoded r1, s1: {:?}, {:?}", r1, s1);
 
     let (r, s) = decode_ec_signature(&encoded)?;
+    println!("decoded r, s: {:?}, {:?}", r, s);
     let r_strip = strip_to_fixed_size(&r, curve_size);
     let s_strip = strip_to_fixed_size(&s, curve_size);
+    println!("r_strip, s_strip: {:?}, {:?}", r_strip, s_strip);
     let combined_signature = [r_strip, s_strip].concat();
+
+    println!("Signature: {:?}", combined_signature);
 
     let spki = &cert.tbs_certificate.subject_pki;
     let algorithm_oid = spki.algorithm.algorithm.to_string();

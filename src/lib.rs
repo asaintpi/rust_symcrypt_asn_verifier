@@ -16,6 +16,7 @@ pub mod rsa;
 pub mod utils;
 pub mod x509;
 
+
 /// `parse_certificate` attempts to parse and verify a certificate's signature using either an RSA or EC key
 ///
 /// This function provides an interface to handle certificate parsing for different cryptographic schemes
@@ -55,7 +56,6 @@ pub fn parse_certificate(
                     .map_err(|_| SymCryptError::InvalidArgument)
             },
         }
-    
 }
 
 #[cfg(test)]
@@ -71,18 +71,10 @@ mod tests {
         let hashed_message_384 = sha384(message);
         let hash_algorithm = HashAlgorithm::Sha384;
         let signature = key_pair.pkcs1_sign(&hashed_message_384, hash_algorithm).unwrap();
-        let public_key_blob = key_pair.export_public_key_blob().unwrap();
-
-        let rsa_key = RsaKey::set_public_key(
-            &public_key_blob.modulus,
-            &public_key_blob.pub_exp,
-            RsaKeyUsage::SignAndEncrypt,
-        )
-        .unwrap();
         
         let signature_scheme = SignatureScheme::RSA_PKCS1_SHA384;
         let data = fs::read(path).expect("Failed to read test certificate file");
-        assert!(parse_certificate(&data, message, signature, signature_scheme, Some(rsa_key), None).is_ok());
+        assert!(parse_certificate(&data, message, signature, signature_scheme).is_ok());
     }
 
     #[test]
@@ -96,6 +88,6 @@ mod tests {
         let signature = key.ecdsa_sign(&hashed_message_256).unwrap();
         let data = fs::read(path).expect("Failed to read test certificate file");
         let signature_scheme = SignatureScheme::ECDSA_NISTP256_SHA256;
-        assert!(parse_certificate(&data, message, signature, signature_scheme, None, Some(key)).is_ok());
+        assert!(parse_certificate(&data, message, signature, signature_scheme).is_ok());
     }
 }
