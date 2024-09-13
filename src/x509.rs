@@ -1,3 +1,6 @@
+#![allow(warnings)]
+// NOTE: This code can be modified to test RSA_PSS when passing in a PKCS1 Certificate. Was unable to find a PSS Certificate though I am sure it can be created using openssl.
+
 // External crate imports
 use der::{asn1::{Uint, ObjectIdentifier}, Decode, Reader};
 use symcrypt::{
@@ -135,17 +138,15 @@ fn decode_ec_signature(encoded_sig: &[u8]) -> Result<(Vec<u8>, Vec<u8>), SymCryp
 /// # Returns:
 /// A Vec<u8> of exactly `target_size` length
 fn strip_to_fixed_size(bytes: &[u8], target_size: usize) -> Vec<u8> {
-    // Identify where the significant bytes start (skip leading zeros)
     let mut start = 0;
     while start < bytes.len() && bytes[start] == 0 {
         start += 1;
     }
-    // Calculate the length of significant bytes
     let significant_length = bytes.len() - start;
     if significant_length >= target_size {
-        bytes[start..].to_vec()  // Return last `target_size` bytes
+        bytes[start..].to_vec()
     } else {
-        let mut result = vec![0; target_size - significant_length];  // Pad with zeros if less than target_size
+        let mut result = vec![0; target_size - significant_length];  
         result.extend_from_slice(&bytes[start..]);
         result
     }
@@ -169,21 +170,6 @@ pub fn parse_x509_certificate_ec(data: &[u8], message: &[u8], signature: Vec<u8>
         return Err(SymCryptError::InvalidBlob);
     };
 
-    let curve_size = signature.len() / 2;
-    let (r1, s1) = split_signature(&signature, curve_size);
-    println!("oringinal r1, s1: {:?}, {:?}", r1, s1);
-    let encoded = encode_ec_signature(&r1, &s1)?;
-    println!("encoded r1, s1: {:?}, {:?}", r1, s1);
-
-    let (r, s) = decode_ec_signature(&encoded)?;
-    println!("decoded r, s: {:?}, {:?}", r, s);
-    let r_strip = strip_to_fixed_size(&r, curve_size);
-    let s_strip = strip_to_fixed_size(&s, curve_size);
-    println!("r_strip, s_strip: {:?}, {:?}", r_strip, s_strip);
-    let combined_signature = [r_strip, s_strip].concat();
-
-    println!("Signature: {:?}", combined_signature);
-
     let spki = &cert.tbs_certificate.subject_pki;
     let algorithm_oid = spki.algorithm.algorithm.to_string();
     let ecc_public_key_data = &spki.subject_public_key.data; 
@@ -192,6 +178,17 @@ pub fn parse_x509_certificate_ec(data: &[u8], message: &[u8], signature: Vec<u8>
     } else {
         ecc_public_key_data
     };
+
+    let curve_size = signature.len() / 2;
+    let (r1, s1) = split_signature(&signature, curve_size);
+    let encoded = encode_ec_signature(&r1, &s1)?;
+
+    let (r, s) = decode_ec_signature(&encoded)?;
+    let r_strip = strip_to_fixed_size(&r, curve_size);
+    let s_strip = strip_to_fixed_size(&s, curve_size);
+    let combined_signature = [r_strip, s_strip].concat();
+
+
         
     let ecc_oid = ObjectIdentifier::new("1.2.840.10045.2.1").unwrap().to_string();
 
@@ -201,8 +198,6 @@ pub fn parse_x509_certificate_ec(data: &[u8], message: &[u8], signature: Vec<u8>
         SignatureScheme::RSA_PKCS1_SHA512 | SignatureScheme::RSA_PSS_SHA512 => HashAlgorithm::Sha512,
         _ => return Err(SymCryptError::IncompatibleFormat),
     };
-
-
 
     if algorithm_oid != ecc_oid {
         return Err(SymCryptError::WrongKeySize);
@@ -244,10 +239,8 @@ pub fn parse_x509_certificate(
     let (_, cert) = X509Certificate::from_der(data).map_err(|_| SymCryptError::InvalidBlob)?;
     
     let spki = &cert.tbs_certificate.subject_pki;
-    // Extract the public key from the certificate
     let rsa_public_key = RSAPublicKey::from_der(&spki.subject_public_key.data).map_err(|_| SymCryptError::InvalidBlob)?;
 
-    // Create a new RSA key using set_public_key
     let rsa_key1 = RsaKey::set_public_key(
         &rsa_public_key.modulus.as_bytes(),
         &rsa_public_key.exponent.as_bytes(),
@@ -256,7 +249,6 @@ pub fn parse_x509_certificate(
     .map_err(|_| SymCryptError::IncompatibleFormat)?;
 
     let algorithm_oid = spki.algorithm.algorithm.to_string();
-
     let rsa_pkcs1_oid = ObjectIdentifier::new("1.2.840.113549.1.1.1").unwrap().to_string();
     let rsa_pss_oid = ObjectIdentifier::new("1.2.840.113549.1.1.10").unwrap().to_string();
     let ecc_oid = ObjectIdentifier::new("1.2.840.10045.2.1").unwrap().to_string();
@@ -380,7 +372,12 @@ fn handle_rsa_pss(signature: Vec<u8>, hash_algorithm: HashAlgorithm, message: &[
 /// # Returns:
 /// A `Result<(), SymCryptError>` that indicates the success or failure of the signature verification
 /// Returns `Ok(())` if the signature is verified successfully, and an `Err(SymCryptError)` for any errors encountered during verification
-fn handle_ecc(signature: Vec<u8>, curve_type: CurveType, _hash_algorithm: HashAlgorithm, key: EcKey, message: &[u8]) -> Result<(), SymCryptError> {
+fn handle_ecc(signature: Vec<u8>,
+    curve_type: CurveType,
+    _hash_algorithm: HashAlgorithm,
+    key: EcKey, message: &[u8]) -> Result<(), SymCryptError> 
+       
+       {
     let verify_result = match curve_type {
         CurveType::NistP256 => {
             let hashed_message_256 = sha256(message);
@@ -389,7 +386,7 @@ fn handle_ecc(signature: Vec<u8>, curve_type: CurveType, _hash_algorithm: HashAl
         CurveType::NistP384 => {
             let hashed_message_384 = sha384(message);
             key.ecdsa_verify(&signature, &hashed_message_384)
-        },
+        },                  
         CurveType::Curve25519 => {
             println!("Curve25519 is not supported for ECDSA verification.");
             return Err(SymCryptError::InvalidArgument);

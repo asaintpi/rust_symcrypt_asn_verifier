@@ -1,3 +1,4 @@
+#![allow(warnings)]
 // rsa.rs
 use symcrypt::rsa::{RsaKey, RsaKeyUsage};
 use symcrypt::hash::HashAlgorithm;
