@@ -1,0 +1,15 @@
+[package]
+name = "rsa_pkcs1_test"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+rust_symcrypt_asn_verifier = { path = "C:\\Users\\t-apierre\\OneDrive - Microsoft\\Desktop\\init_test_x509\\rust_symcrypt_asn_verifier" }
+der = "0.7.9"
+rsa = "0.9.6"
+symcrypt = { path = "C:\\Users\\t-apierre\\OneDrive - Microsoft\\Desktop\\rust-symcrypt\\rust-symcrypt" }
+x509-parser = "0.16.0"
+hex = "0.4.3"
+serde = { version = "1.0", features = ["derive"] }
+picky-asn1-der = "0.5.0"
+picky-asn1-x509 = "0.13.0"
